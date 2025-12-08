@@ -1,10 +1,10 @@
 # About
 This repository searches a file and warns users about potential dangers/bad practices in their discord.py code. This is mainly for beginners and therefore to run this, is super simple.
 
-# Cloning it (i.e how you would run this code)
+# Cloning it (i.e how you would obtain this code)
 Open your terminal and run, this clones this repository into your directory.
 ```py
-https://github.com/Sacul0457/dpy.debugger.git
+git clone https://github.com/Sacul0457/dpy.debugger.git
 ```
 
 # Using it
