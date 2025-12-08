@@ -251,7 +251,6 @@ class ParserV2:
 
 
 def run():
-    print(sys.argv)
     for i in range(1, len(sys.argv)):
         file = sys.argv[i]
         with open(file, "r") as f:
