@@ -253,94 +253,97 @@ class ParserV2:
 def run():
     for i in range(1, len(sys.argv)):
         file = sys.argv[i]
-        with open(file, "r") as f:
-            source_code = f.read()
+        try:
+            with open(file, "r") as f:
+                source_code = f.read()
 
-        # this contains the reason as why something is a bad practice if not stated in tests (see below)
-        basic_reasons = {
-            "change_presence": "- Change presence has a low ratelimit and can easily ratelimit your bot!\n- Use the activity/status kwargs in your Client/Bot class",
-            "tree.sync": "- Sycning has a low ratelimit and can easily ratelimit your bot!\n- Use a message command to sync",
-            "Intents.all()": "- Most of the time, your bot only needs a few intents. Using all intents increases memory usage.\n- Enabled the intents you only need",
-            "eval": "- Using eval/exec can be dangerous and perform harmful code to your system.\n- Avoid allowing executing arbitrary/user-inputted code",
-            "exec": "- Using eval/exec can be dangerous and perform harmful code to your system.\n- Avoid allowing executing arbitrary/user-inputted code",
-            "wait_for": "- Using 'wait_for' or 'wait_until_ready' requires a websocket connection. However, 'setup_hook' is called before a connection is made, which will therefore cause a deadlock, meaning your program will stop infinitely.",
-            "process_commands": "- When using the 'on_message' event, you override how the library handles prefix commands and your prefix commands you will no longer work without 'bot.process_commands(message)'\n- Add the 'bot.process_commands(message)' in your 'on_message' event.",
-            "time.sleep": "- Using 'time.sleep()' is a blocking function.\n- Use 'asyncio.sleep()' instead",
-            "datetime.now()": "- Using 'datetime.now()' without setting the timezone can cause uninteded bevahiour as it will be based on your timezone.\n- Consider 'discord.utils.utcnow()' which is UTC-based.",
-            "token": "- Avoid hard coding the bot token, it's recommended to store it in a separate file. (e.g .env)",
-            "import requests": "-'requests' is a non-asynchronous module, hence using it in an async-environment will make it a blocking function.\n- Use 'aiohttp' instead which is asynchronous",
-            "author.send": "- Sending multiple DMs to users is not only annoying but can get your bot easily ratelimited or even quarantined.- Consider using mentions instead",
-            "user.send": "- Sending multiple DMs to users is not only annoying but can get your bot easily ratelimited or even quarantined.- Consider using mentions instead",
-            "member.send": "- Sending multiple DMs to users is not only annoying but can get your bot easily ratelimited or even quarantined.- Consider using mentions instead",
-        }
+            # this contains the reason as why something is a bad practice if not stated in tests (see below)
+            basic_reasons = {
+                "change_presence": "- Change presence has a low ratelimit and can easily ratelimit your bot!\n- Use the activity/status kwargs in your Client/Bot class",
+                "tree.sync": "- Sycning has a low ratelimit and can easily ratelimit your bot!\n- Use a message command to sync",
+                "Intents.all()": "- Most of the time, your bot only needs a few intents. Using all intents increases memory usage.\n- Enabled the intents you only need",
+                "eval": "- Using eval/exec can be dangerous and perform harmful code to your system.\n- Avoid allowing executing arbitrary/user-inputted code",
+                "exec": "- Using eval/exec can be dangerous and perform harmful code to your system.\n- Avoid allowing executing arbitrary/user-inputted code",
+                "wait_for": "- Using 'wait_for' or 'wait_until_ready' requires a websocket connection. However, 'setup_hook' is called before a connection is made, which will therefore cause a deadlock, meaning your program will stop infinitely.",
+                "process_commands": "- When using the 'on_message' event, you override how the library handles prefix commands and your prefix commands you will no longer work without 'bot.process_commands(message)'\n- Add the 'bot.process_commands(message)' in your 'on_message' event.",
+                "time.sleep": "- Using 'time.sleep()' is a blocking function.\n- Use 'asyncio.sleep()' instead",
+                "datetime.now()": "- Using 'datetime.now()' without setting the timezone can cause uninteded bevahiour as it will be based on your timezone.\n- Consider 'discord.utils.utcnow()' which is UTC-based.",
+                "token": "- Avoid hard coding the bot token, it's recommended to store it in a separate file. (e.g .env)",
+                "import requests": "-'requests' is a non-asynchronous module, hence using it in an async-environment will make it a blocking function.\n- Use 'aiohttp' instead which is asynchronous",
+                "author.send": "- Sending multiple DMs to users is not only annoying but can get your bot easily ratelimited or even quarantined.- Consider using mentions instead",
+                "user.send": "- Sending multiple DMs to users is not only annoying but can get your bot easily ratelimited or even quarantined.- Consider using mentions instead",
+                "member.send": "- Sending multiple DMs to users is not only annoying but can get your bot easily ratelimited or even quarantined.- Consider using mentions instead",
+            }
 
-        # tests is a dict with the key being the function name and the values being the code to check
-        tests: dict[str, tuple[str, ...]] = {
-            "on_ready": ("tree.sync", "change_presence"),
-            "setup_hook": (
-                "tree.sync",
-                "change_presence",
-                "wait_for",
-                "wait_until_ready",
-            ),
-            "on_message": ("process_commands",),
-        }
-        parser = None
-        for function, function_tests in tests.items():
-            if parser is None:
-                parser = ParserV2(source_code, function)
-            else:
-                parser.parse_attributes(function, instance=parser)
+            # tests is a dict with the key being the function name and the values being the code to check
+            tests: dict[str, tuple[str, ...]] = {
+                "on_ready": ("tree.sync", "change_presence"),
+                "setup_hook": (
+                    "tree.sync",
+                    "change_presence",
+                    "wait_for",
+                    "wait_until_ready",
+                ),
+                "on_message": ("process_commands",),
+            }
+            parser = None
+            for function, function_tests in tests.items():
+                if parser is None:
+                    parser = ParserV2(source_code, function)
+                else:
+                    parser.parse_attributes(function, instance=parser)
 
-            function_code = next(parser.parse_data())
-            for test in function_tests:
-                line = function_code[0]
-                function_line_num = function_code[1] + 1
-                to_print = f"Do not use {test!r} in your {function!r} function (Line {function_line_num})\n{basic_reasons.get(test, '- There are no suggested changes')}"
-                if function == "on_message" and test == "process_commands":
-                    if test in line:
+                function_code = next(parser.parse_data())
+                for test in function_tests:
+                    line = function_code[0]
+                    function_line_num = function_code[1] + 1
+                    to_print = f"Do not use {test!r} in your {function!r} function (Line {function_line_num})\n{basic_reasons.get(test, '- There are no suggested changes')}"
+                    if function == "on_message" and test == "process_commands":
+                        if test in line:
+                            continue
+                        to_print = f"Did you forget a {test!r} in your {function!r} function (Line {function_line_num})\n{basic_reasons.get(test, '- There are no suggested changes')}"
+                    elif test not in line:
                         continue
-                    to_print = f"Did you forget a {test!r} in your {function!r} function (Line {function_line_num})\n{basic_reasons.get(test, '- There are no suggested changes')}"
-                elif test not in line:
-                    continue
-                print(f"{file}#{function_line_num}")
-                print(to_print)
-                print()
-                print("---" * 25)
-                print()
-
-        # This search here searches for variables
-        tests_variables = (
-            "Intents.all()",
-            "eval",
-            "exec",
-            "time.sleep",
-            "datetime.now()",
-            "import requests",
-            "author.send",
-            "user.send",
-            "member.send",
-        )
-        search_more = set(("author.send", "user.send", "member.send"))
-
-        source_code_lines = source_code.splitlines()
-        for line_num, line in enumerate(source_code_lines, start=1):
-            for test_var in tests_variables:
-                if test_var in line:
-                    if test_var in search_more and source_code_lines[
-                        min(line_num - 1, 0)
-                    ].lstrip().startswith("for "):
-                        jump_url = f"{file}#{line_num - 1}"
-                    else:
-                        jump_url = f"{file}#{line_num}"
-                    print(jump_url)
-                    print(
-                        f"Do not use {test_var!r} in this context! (Line {line_num})\n{basic_reasons.get(test_var, '- There are no suggested changes')}"
-                    )
+                    print(f"{file}#{function_line_num}")
+                    print(to_print)
                     print()
                     print("---" * 25)
                     print()
 
+            # This search here searches for variables
+            tests_variables = (
+                "Intents.all()",
+                "eval",
+                "exec",
+                "time.sleep",
+                "datetime.now()",
+                "import requests",
+                "author.send",
+                "user.send",
+                "member.send",
+            )
+            search_more = set(("author.send", "user.send", "member.send"))
+
+            source_code_lines = source_code.splitlines()
+            for line_num, line in enumerate(source_code_lines, start=1):
+                for test_var in tests_variables:
+                    if test_var in line:
+                        if test_var in search_more and source_code_lines[
+                            min(line_num - 1, 0)
+                        ].lstrip().startswith("for "):
+                            jump_url = f"{file}#{line_num - 1}"
+                        else:
+                            jump_url = f"{file}#{line_num}"
+                        print(jump_url)
+                        print(
+                            f"Do not use {test_var!r} in this context! (Line {line_num})\n{basic_reasons.get(test_var, '- There are no suggested changes')}"
+                        )
+                        print()
+                        print("---" * 25)
+                        print()
+        except FileNotFoundError:
+            print(f"Could not find: {file!r}, skipping")
+            continue
 
 if __name__ == "__main__":
     run()
