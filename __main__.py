@@ -384,6 +384,7 @@ def run(*given_args):
                 print(f"An error occurred: {e}, skipping {file!r}")
                 f.close()
                 continue
+        print("Want to contribute or found a mistake, open a PR/Issue on github: https://github.com/Sacul0457/dpy_debugger")
     else:
         print(f"Invalid command: {sys.argv[1:]!r}, use 'python -m dpy_debugger -h' for help")
 if __name__ == "__main__":
