@@ -4,17 +4,17 @@ This repository searches a file and warns users about potential dangers/bad prac
 # Cloning it (i.e how you would obtain this code)
 Open your terminal and run, this clones this repository into your directory.
 ```py
-git clone https://github.com/Sacul0457/dpy.debugger.git
+git clone https://github.com/Sacul0457/dpy_debugger.git
 ```
 
 # Using it
 For instance, run this in your terminal where `main.py` is the file you want to check. 
 ```py
-python -m dpy.debugger main.py
+python -m dpy_debugger main.py
 ```
 It can also check multiple files like so
 ```py
-python -m dpy.debugger main.py bot.py
+python -m dpy_debugger main.py bot.py
 ```
 
 # About the Code
