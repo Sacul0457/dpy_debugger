@@ -3,7 +3,9 @@ from __future__ import annotations
 import ast
 import sys
 
-from typing import Generator, Self
+from typing import Generator, Any
+from collections.abc import Iterator
+from collections import deque
 
 def _debug_print(msg: str, colour: str) -> None:
     RESET = "\033[0m"
@@ -19,250 +21,136 @@ def _debug_print(msg: str, colour: str) -> None:
         print(msg)
 
 
-class ParserV2:
+class Parser:
     __slots__ = (
-        "source_code",
-        "data",
-        "to_search_for",
-        "cls",
-        "_node_mapping",
-        "exact",
+        'node_classes',
+        'nodes'
     )
 
-    def __init__(
-        self,
-        source_code: str,
-        to_search_for: str,
-        cls: str | None = None,
-        exact: bool = False,
-    ) -> None:
-        self.to_search_for = to_search_for
-        self.data = ast.parse(source_code)
-        self.cls = cls
-        self.source_code = source_code
-        self.exact = exact
-        if not self.exact:  # We only build this mapping when 'exact' is False
-            self._node_mapping: dict[str, ast.ClassDef] = {
-                node.name: node
-                for node in ast.walk(self.data)
-                if isinstance(node, ast.ClassDef)
-            }
-
-    def _reload(
-        self, to_search_for: str | None, cls: str | None = None, exact: bool = False
-    ):
-        self.to_search_for = to_search_for
-        self.cls = cls
-        self.exact = exact
-        if not self.exact:  # We only build this mapping when 'exact' is False
-            self._node_mapping: dict[str, ast.ClassDef] = {
-                node.name: node
-                for node in ast.walk(self.data)
-                if isinstance(node, ast.ClassDef)
-            }
-
-    def filter_parent_classes(self, text: str) -> list[str]:
-        parent_classes = text[text.find("(") + 1 : text.rfind(")")]
-        return [
-            parent_class
-            for parent_class in parent_classes.split(", ")
-            if parent_class in self._node_mapping
-        ]
-
-    def get_all_parent_classes(
-        self, subclasses: list[str], current_nodes: list[ast.ClassDef]
-    ) -> list[ast.ClassDef]:
-        """This method fetches all Parent Classes"""
-
-        lines = self.source_code.splitlines()
-        queue = subclasses.copy()
-
-        while queue:
-            subclass = queue.pop(0)
-            new_parent_class = self._node_mapping.get(subclass)
-            if new_parent_class is None:
-                continue
-            new_parent_class_text = lines[(new_parent_class.lineno or 1) - 1]
-            new_parent_classes = self.filter_parent_classes(new_parent_class_text)
-            current_nodes.append(new_parent_class)  # type: ignore
-            queue.extend(new_parent_classes)
-        return current_nodes
-
-    def parse_data(
-        self, count: int = 1, allow_parent_class: bool = True
-    ) -> Generator[tuple[str, int]]:
-        """
-        The main method to get the content of the code.
-
-        paremeters
-        -----------
-        :class:`int` count:
-            How many occurrences to yield. Defaults to 1.
-        allow_parent_class: :class:`bool`
-            Whether to search for methods in the parent class or just the child class. Defaults to False
-
-        Yields
-        -------
-        The content of the string
-        """
-        data = self.data
-        to_seach_for = self.to_search_for
-        _cls = self.cls
-        lines = self.source_code.splitlines()
-
-        already_searched: int = 0  # type: ignore
-
-        if self.exact:
-            already_searched: set[tuple[int, int | None]] = set()  # type: ignore
-            new_lines = ("\n".join(lines).lstrip().rstrip()).splitlines()
-            for node in ast.walk(self.data):
-                if isinstance(
-                    node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-                ):
-                    start, end = node.lineno - 1, node.end_lineno
-                    for i in range(start, end):  # type: ignore
-                        if to_seach_for == new_lines[i].lstrip().rstrip():
-                            if not to_seach_for.startswith("class ") and isinstance( # type: ignore
-                                node, ast.ClassDef
-                            ):
-                                for func_node in node.body:
-                                    if (
-                                        isinstance(
-                                            func_node,
-                                            (ast.AsyncFunctionDef, ast.FunctionDef),
-                                        )
-                                        and start <= func_node.lineno < end
-                                    ):  # type: ignore
-                                        func_start, func_end = (
-                                            func_node.lineno - 1,
-                                            func_node.end_lineno,
-                                        )
-                                        for i in range(func_start, func_end):
-                                            if len(already_searched) == count:
-                                                return
-                                            elif (
-                                                func_node.lineno,
-                                                func_node.end_lineno,
-                                            ) in already_searched:
-                                                continue
-                                            if to_seach_for == new_lines[i]:
-                                                yield (
-                                                    "\n".join(
-                                                        new_lines[func_start:func_end]
-                                                    ),
-                                                    func_start,
-                                                )
-                                                already_searched.add(
-                                                    (
-                                                        func_node.lineno,
-                                                        func_node.end_lineno,
-                                                    )
-                                                )
-                            else:
-                                if len(already_searched) == count:
-                                    return
-                                if (start, end) in already_searched:
-                                    continue
-                                yield "\n".join(new_lines[start:end]), start
-                                already_searched.add((start, end))
+    def __init__(self) -> None:
+        self.node_classes: dict[str, ast.ClassDef] | None = None
+        self.nodes: ast.AST | None = None
+    
+    @staticmethod
+    def _find_function(tree: Iterator[ast.AST] | ast.ClassDef, func_name: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+        if isinstance(tree, Iterator):
+            for node in tree:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+                    return node
         else:
-            # Check _cls outside the loop
-            if _cls is not None:
-                node = self._node_mapping.get(_cls)
-                if node is None:
+            for func in tree.body:
+                if isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)) and func.name == func_name:
+                    return func
+        return None
+    
+    @staticmethod
+    def _get_exact_surroundings(source_code_lines: list[str], to_find: str, *, surroundings_size: int, count: int = 1):
+        EOF_LINE = len(source_code_lines)
+        for i, line in enumerate(source_code_lines, start=1):
+            if count <= 0:
+                break
+            if to_find in line:
+                ret: str = ""
+                for t_down in range(i - surroundings_size, i):
+                    ret += source_code_lines[t_down]
+                for t_up in range(i, min(i + surroundings_size, EOF_LINE)):
+                    ret += source_code_lines[t_up]
+                yield (ret, i)
+                count -= 1
+
+    def deep_search_find_func(self, lines: list[str], func_name: str, cls_node: ast.ClassDef, classes: dict[str, ast.ClassDef]) -> Generator[tuple[str, int]]:
+        EOF_LINE = len(lines)
+
+        parent_classes = deque(cls_node.bases)
+        seen = set()
+        while parent_classes:
+            parent_cls = classes.get(getattr(parent_classes.popleft(), "id", None)) # type: ignore
+            if parent_cls is None:
+                continue
+            if parent_cls.name in seen:
+                continue
+            seen.add(parent_cls.name)
+            func_node = self._find_function(parent_cls, func_name)
+            if parent_cls.bases:
+                parent_classes.extend(parent_cls.bases) # type: ignore
+            if func_node is not None:
+                yield ("".join(lines[func_node.lineno - 1: func_node.end_lineno or EOF_LINE]), func_node.lineno)
+
+    def find_code(self, source_code: str, kwargs: dict[str, Any]) -> Generator[tuple[str, int]]:
+        exact, surr_size, func_name, cls_name, deep_search, cache_classes, count, cache_source = self.parse_attributes(kwargs)
+        source_code_lines = source_code.splitlines(keepends=True)
+
+        if exact:
+            yield from self._get_exact_surroundings(source_code_lines, exact, surroundings_size=surr_size, count=count)
+            return
+
+        EOF_LINE = len(source_code_lines)
+        if self.nodes is None:
+            nodes = ast.parse(source_code)
+            if cache_source:
+                self.nodes = nodes
+        elif cache_source:
+            nodes = self.nodes
+
+        tree = ast.walk(nodes)
+
+        if cls_name:
+            if cache_classes and self.node_classes is not None:
+                node_classes = self.node_classes
+            else:
+                node_classes: dict[str, ast.ClassDef] = {node.name: node for node in tree if isinstance(node, ast.ClassDef)}
+                if cache_classes:
+                    self.node_classes = node_classes
+        
+        cls_node = None
+        while count > 0:
+            if cls_name:
+                # Must be inside a class
+                cls_node = node_classes.get(cls_name)
+                if cls_node is None:
                     return
 
-                new_nodes = [node]
-                if allow_parent_class:
-                    parent_classes = self.filter_parent_classes(
-                        lines[node.lineno - 1]
-                    )  # node.lineno = class ...
-                    new_nodes = self.get_all_parent_classes(parent_classes, [node])
-                for node in new_nodes:
-                    if already_searched == count:
-                        return
-                    for body_item in node.body:
-                        if (
-                            isinstance(
-                                body_item, (ast.AsyncFunctionDef, ast.FunctionDef)
-                            )
-                            and body_item.name == to_seach_for
-                        ):
-                            yield (
-                                "\n".join(
-                                    lines[body_item.lineno - 1 : body_item.end_lineno]
-                                ),
-                                body_item.lineno - 1,
-                            )
-                            already_searched += 1 # type: ignore
+                if func_name is None:
+                    yield "".join(source_code_lines[cls_node.lineno -1 : cls_node.end_lineno or EOF_LINE]), cls_node.lineno
+                    count -= 1
+                    continue
+                else:
+                    func_node = self._find_function(cls_node, func_name)
+                    if func_node is not None:
+                        count -= 1
+                        yield "".join(source_code_lines[func_node.lineno - 1: func_node.end_lineno or EOF_LINE]), func_node.lineno
+                        
+                    if deep_search:
+                        for res in self.deep_search_find_func(source_code_lines, func_name, cls_node, node_classes):
+                            if count < 1:
+                                return
+                            yield res
+                            count -= 1
             else:
-                for function in ast.walk(data):
-                    if already_searched == count:
-                        break
-                    if (
-                        isinstance(
-                            function,
-                            (ast.AsyncFunctionDef, ast.FunctionDef, ast.ClassDef),
-                        )
-                        and function.name == to_seach_for
-                    ):
-                        yield (
-                            "\n".join(lines[function.lineno - 1 : function.end_lineno]),
-                            function.lineno - 1,
-                        )
-                        already_searched += 1 # type: ignore
-        return None
+                func_node = self._find_function(tree, func_name)
+                if not func_node:
+                    return
+                count -= 1
+                yield "".join(source_code_lines[func_node.lineno - 1: func_node.end_lineno or EOF_LINE]), func_node.lineno
+
 
     @staticmethod
-    def parse_attributes(
-        index: str | dict[str, str],
-        exact: bool = False,
-        *,
-        instance: ParserV2 | None = None,
-    ):
-        if exact and isinstance(index, dict):
-            raise ValueError("Cannot be exact and use attributes!")
+    def parse_attributes(kwargs: dict[str, Any]) -> tuple:
 
-        parent_class = None
-        if not exact:
-            if isinstance(index, dict):
-                if "function" in index:
-                    ret = index["function"]
-                    if "class" in index:
-                        parent_class = index["class"]
-                else:
-                    ret = index["class"]
-            else:
-                attributes: list[str] = index.split(".")
+        exact = kwargs.get("exact")
+        surr_size = kwargs.get("surrounding_size", 6)
 
-                if attributes[0].startswith("discord"):
-                    attributes.remove("discord")
-                if len(attributes) == 2:
-                    if attributes[0][0].isupper():
-                        parent_class = attributes[0]
-                    ret = attributes[1]
-                elif len(attributes) == 1:
-                    ret = attributes[0]
-                else:
-                    raise ValueError(f"Unable to parse {index!r}")
-            ret = ret.strip(
-                "()"
-            )  # If people do func(), this will make sure ast searches for it properly
-        else:
-            ret = index
-        assert isinstance(ret, str)
-        if instance is not None:
-            instance._reload(ret, parent_class, exact)
-        else:
-            return ret, parent_class, exact
+        if exact and surr_size:
+            return exact, surr_size, None, None,  None, None, None, None
 
-    @classmethod
-    def create_class(
-        cls, source_code: str, index: str | dict[str, str], exact: bool = False
-    ) -> Self:
-        ret, parent_class, exact = cls.parse_attributes(index, exact, instance=None)  # type: ignore
-        return cls(source_code, ret, parent_class, exact)
+        func_name = kwargs.get("function")
+        cls_name = kwargs.get("class")
+        deep_search = kwargs.get("deep_search", False)
+        count = kwargs.get("count", 1)
+        cache_classes = kwargs.get("cache_classes", False)
+        cache_source = kwargs.get("cache_source", False)
 
+        return None, None, func_name, cls_name,  deep_search, cache_classes, count, cache_source
 
 def print_help_command():
     _debug_print("Usage: dpy_debugger [-h | --help] [files]\n\nArgs:\n  - [-h | --help], Prints this command.\n  - [files], python files you want to check, space seperated",
@@ -343,13 +231,14 @@ def run(*given_args):
             tests_inside: dict[str, tuple[str, ...]] = {
                 "on_message": ("process_commands", 'message.author.id ==', 'message.author.bot'),
             }
-            parser = None
+            parser = Parser()
+            payload = {
+                "cache_source": True,
+                "cache_classes": True,
+            }
             for function, function_tests in tests_not_inside.items():
-                if parser is None:
-                    parser = ParserV2(source_code, function)
-                else:
-                    parser.parse_attributes(function, instance=parser)
-                function_code = next(parser.parse_data(), None)
+                payload['function'] = function # type: ignore
+                function_code = next(parser.find_code(source_code, payload), None)
                 if function_code is None:
                     continue
                 line_num = function_code[1] + 1
